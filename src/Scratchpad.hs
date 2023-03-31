@@ -1,0 +1,78 @@
+-- {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+--
+-- import Control.Monad.State (StateT, execStateT, get, put)
+-- import Control.Monad.Trans.Class (MonadTrans(lift))
+-- import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
+-- import Data.Maybe (fromMaybe)
+--
+-- data Menu a = Menu { menuName :: String, menuItems :: [MenuItem a] }
+-- data MenuItem a = MenuItem { itemName :: String, itemAction :: MaybeT (StateT AppState IO) a }
+--
+-- newtype MenuM a = MenuM { runMenuM :: MaybeT (StateT AppState IO) a }
+--   deriving (Functor, Applicative, Monad, MonadIO, MonadState AppState, MonadError String)
+--
+-- menuItem :: String -> MaybeT (StateT AppState IO) a -> MenuItem a
+-- menuItem name action = MenuItem { itemName = name, itemAction = action }
+--
+-- menu :: String -> [MenuItem a] -> Menu a
+-- menu name items = Menu { menuName = name, menuItems = items }
+--
+-- runMenu :: Menu a -> MenuM a
+-- runMenu (Menu name items) = do
+--   selected <- selectItem name items
+--   fromMaybe (error "Invalid input") $ itemAction selected
+--
+-- selectItem :: String -> [MenuItem a] -> MenuM (Maybe (MenuItem a))
+-- selectItem menuName items = do
+--   liftIO $ clearScreen
+--   notice .= Info ("Menu: " ++ menuName)
+--   putMenuItems items
+--   liftIO $ putStrLn ""
+--   input <- liftIO $ getCharNoEcho
+--   let index = readMaybe [input] :: Maybe Int
+--   case index of
+--     Just i -> do
+--       let selected = items ^? ix (i - 1)
+--       case selected of
+--         Just item -> do
+--           notice .= Plain ("Selected: " ++ itemName item)
+--           return (Just item)
+--         Nothing -> do
+--           notice .= Info ("No menu item for " ++ show i)
+--           return Nothing
+--     Nothing -> do
+--       notice .= Alert "Invalid input"
+--       return Nothing
+--
+-- putMenuItems :: [MenuItem a] -> MenuM ()
+-- putMenuItems items = do
+--   let numberedItems = zip [1..] items
+--   forM_ numberedItems $ \(i, item) -> do
+--     liftIO $ putStrLn (show i ++ ". " ++ itemName item)
+--
+-- exampleMenu :: Menu Int
+-- exampleMenu =
+--   menu "Main Menu"
+--     [ menuItem "Option 1" $ do
+--         notice .= Info "Option 1 selected"
+--         return 1
+--     , menuItem "Option 2" $ do
+--         subMenu <- runMenu subMenu
+--         return $ fromMaybe 0 subMenu
+--     , menuItem "Quit" $ do
+--         notice .= Info "Goodbye!"
+--         liftIO $ hideCursor >> clearScreen >> showCursor
+--         liftIO $ exitSuccess
+--     ]
+--
+-- subMenu :: Menu Int
+-- subMenu =
+--   menu "Sub Menu"
+--     [ menuItem "Sub Option 1" $ do
+--         notice .= Info "Sub Option 1 selected"
+--         return 1
+--     , menuItem "Sub Option 2" $ do
+--         notice .= Info "Sub Option 2 selected"
+--         return 2
+--     ]
+--
