@@ -25,6 +25,11 @@ data Message
   | Plain String
   deriving (Show)
 
+renderMessage :: Message -> String
+renderMessage (Info str)  = "🛈 " ++ str ++ "  "
+renderMessage (Alert str) = "⚠ " ++ str ++ "  "
+renderMessage (Plain str) = str
+
 newtype Action = Action { _action :: StateT AppState IO () }
 
 data MenuItem = MenuItem {
@@ -57,11 +62,8 @@ makeLenses ''Game
 makeLenses ''AppState
 makeLenses ''Action
 
-
-
 quitMenuItem :: MenuItem
 quitMenuItem = MenuItem "Quit" Nothing (Just (Action (quit .= True)))
-
 
 testAction :: Action
 testAction = Action $ currentGame . playerAge += 1
@@ -74,13 +76,6 @@ mainMenu = Menu "Main"
 
 helpMenu :: Menu
 helpMenu = Menu "Help" [ MenuItem "Main Menu" (Just mainMenu) Nothing ]
-
-renderMessage :: Message -> String
-renderMessage (Info str)  = "🛈 " ++ str ++ "  "
-renderMessage (Alert str) = "⚠ " ++ str ++ "  "
-renderMessage (Plain str) = str
-
-
 
 runGameLoop :: StateT AppState IO ()
 runGameLoop = do
@@ -107,7 +102,6 @@ runGameLoop = do
             forM_ (selectedItem ^. nextMenu) (currentMenu .=)
             forM_ (selectedItem ^. itemAction) _action
             notice .=  Plain ("You selected " ++ show i ++ ". " ++ selectedItem ^. itemLabel)
-
           Nothing -> notice .= Info ("No menu item for " ++ show i)
       Nothing -> notice .= Alert "Invalid input"
 
