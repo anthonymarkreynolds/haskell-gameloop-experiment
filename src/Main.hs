@@ -34,8 +34,7 @@ newtype Action = Action { _action :: StateT AppState IO () }
 
 data MenuItem = MenuItem {
   _itemLabel  :: String,
-  _nextMenu   :: Maybe Menu,
-  _itemAction :: Maybe Action
+  _itemAction :: Action
 }
 
 data Menu = Menu {
@@ -63,19 +62,53 @@ makeLenses ''Game
 makeLenses ''AppState
 makeLenses ''Action
 
-backMenu :: Menu -> Menu -> Menu
-backMenu currentMenu' nextMenu' = nextMenu' & menuItems %~ (++ [prevMenuItem])
+type MenuM = StateT AppState IO
+type MenuWithBack = MenuM ()
+-- type ConfirmAction = Action -> MenuM ()
+
+
+modifyMenu :: (Menu -> Menu) -> MenuM ()
+modifyMenu f = currentMenu %= f
+
+addMenuItem :: String -> Action -> MenuM ()
+addMenuItem label action' = do
+  modifyMenu $ \menu ->
+    menu & menuItems %~ (++ [MenuItem label action'])
+
+addBackMenuM :: Menu -> MenuM Menu
+addBackMenuM previousMenu = do
+  let backLabel = "Back to: " ++ (previousMenu ^. menuName)
+  addMenuItem backLabel (Action (currentMenu .= previousMenu))
+  use currentMenu
+
+menuWithBack :: MenuM Menu -> Menu -> MenuWithBack
+menuWithBack createMenu previousMenu = do
+  _ <- createMenu
+  _ <- addBackMenuM previousMenu
+  menu <- use currentMenu
+  currentMenu .= menu
+
+confirmAction :: String -> Action -> Menu -> MenuWithBack
+confirmAction message originalAction = menuWithBack confirmMenu
   where
-    prevMenuItem = MenuItem ("Back to: " ++ (currentMenu' ^. menuName)) (Just currentMenu') Nothing
+    confirmMenu :: MenuM Menu
+    confirmMenu = do
+      textArea .= Just message
+      let confirmMenu' = Menu "Confirm" [ MenuItem "Yes" originalAction]
+      currentMenu .= confirmMenu'
+      return confirmMenu'
+
+menuItemWithBack :: String -> MenuM Menu -> Menu -> MenuItem
+menuItemWithBack label createMenu previousMenu =
+  MenuItem label (Action (menuWithBack createMenu previousMenu))
+
+menuItemWithConfirm :: String -> Action -> Menu -> MenuItem
+menuItemWithConfirm label action' previousMenu =
+  MenuItem label (Action (confirmAction message action' previousMenu))
+    where message = "Are you sure you want to " ++ label ++ "?"
 
 newGame :: Game
 newGame = Game "noname" 30 (vertex "Starting Room")
-
-quitMenuItem :: MenuItem
-quitMenuItem = MenuItem "Quit" Nothing (Just (Action (quit .= True)))
-
-renderHelp :: Action
-renderHelp = Action $ textArea .= Just "This is the help text, should be rendering if the Help Menu was selected"
 
 menuInfo :: String
 menuInfo = "Menus are simple to use, all you need to do is press the corresponding numbers on your keyboard."
@@ -84,11 +117,15 @@ multilineStr :: String
 multilineStr =
   "This is a test of multiline strings\nThis should be on line 2\nand this on line 3"
 
-helpMenu :: Menu
-helpMenu = Menu "Help"
-  [ MenuItem "How to use menus" Nothing (Just (Action (textArea .= Just menuInfo)))
-  , MenuItem "How to quit"      Nothing (Just (Action (textArea .= Just "Quitting is easy! Just go the main menu and select 'Quit'")))
-  , MenuItem "Multiline String Test" Nothing (Just (Action (textArea .= Just multilineStr)))]
+helpMenu :: MenuM Menu
+helpMenu = do
+  textArea .= Just "This is the help text, should be rendering if the Help Menu was selected"
+  let menu = Menu "Help"
+             [ MenuItem "How to use menus"  (Action (textArea .= Just  menuInfo))
+             , MenuItem "How to quit"       (Action (textArea .= Just "Quitting is easy! Just go the main menu and select 'Quit'"))
+             , MenuItem "Multiline String Test" (Action (textArea .= Just multilineStr)) ]
+  currentMenu .= menu
+  return menu
 
 testAction :: Action
 testAction = Action $ currentGame . playerAge += 1
@@ -98,19 +135,20 @@ getAge = Action $ do
   game <- use currentGame
   textArea .= Just ("Age: " ++ show (game ^. playerAge))
 
-statsMenu :: Menu
-statsMenu = Menu "Stats"
-  [ MenuItem "Inventory" Nothing Nothing
-  , MenuItem "Player Stats" Nothing (Just getAge)]
+statsMenu :: MenuM Menu
+statsMenu = do
+  let menu = Menu "Stats" [ MenuItem "Player Stats" getAge]
+  currentMenu .= menu
+  return menu
 
 mainMenu :: Menu
 mainMenu = Menu "Main"
-  [ MenuItem "Help"          (Just $ backMenu mainMenu helpMenu) (Just renderHelp)
-  , MenuItem "New Game"      Nothing        (Just (Action $ currentGame .= newGame))
-  , MenuItem "Increment age" Nothing        (Just testAction)
-  , MenuItem "Stats"         (Just $ backMenu mainMenu statsMenu) Nothing
-  , quitMenuItem ]
-
+  [ menuItemWithBack "Help" helpMenu mainMenu
+  , menuItemWithConfirm "New Game" (Action $ currentGame .= newGame) mainMenu
+  , MenuItem "Increment age" testAction
+  , menuItemWithBack "Stats" statsMenu mainMenu
+  , menuItemWithConfirm "Quit"(Action $ quit .= True) mainMenu ]
+  -- , MenuItem "Quit"          (Action $ confirmAction "Are you sure you want to quit?" (Action $ quit .= True) mainMenu) ]
 
 runGameLoop :: StateT AppState IO ()
 runGameLoop = do
@@ -121,7 +159,6 @@ runGameLoop = do
     displayText <- use textArea
     menu <- use currentMenu
     flash <- use notice
-    game <- use currentGame
     let items = menu ^. menuItems
 
     -- Render the view
@@ -132,10 +169,8 @@ runGameLoop = do
       forM_ displayText $ \str -> do
         putStrLn str
         putStrLn "------------------------"
-      -- putStrLn $ "Age: " ++ show ((currentGame . playerAge) ^. appState)
       putStrLn $ "Menu: " ++ menu ^. menuName
       putStr $ ifoldMap (\i item -> show (i + 1) ++ ". " ++ (item ^. itemLabel) ++ "\n") items
-
 
     -- Handle input / run action
     c <- liftIO getCharNoEcho
@@ -144,8 +179,7 @@ runGameLoop = do
         case items ^? ix (i - 1) :: Maybe MenuItem of
           Just selectedItem -> do
             textArea .= Nothing
-            forM_ (selectedItem ^. nextMenu) (currentMenu .=)
-            forM_ (selectedItem ^. itemAction) _action
+            _action (selectedItem ^. itemAction)
             notice .= Plain ("You selected " ++ show i ++ ". " ++ selectedItem ^. itemLabel)
           Nothing -> notice .= Info ("No menu item for " ++ show i)
       Nothing -> notice .= Alert "Invalid input"
