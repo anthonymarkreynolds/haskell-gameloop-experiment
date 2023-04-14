@@ -66,7 +66,6 @@ type MenuM = StateT AppState IO
 type MenuWithBack = MenuM ()
 -- type ConfirmAction = Action -> MenuM ()
 
-
 modifyMenu :: (Menu -> Menu) -> MenuM ()
 modifyMenu f = currentMenu %= f
 
@@ -105,25 +104,32 @@ menuItemWithBack label createMenu previousMenu =
 menuItemWithConfirm :: String -> Action -> Menu -> MenuItem
 menuItemWithConfirm label action' previousMenu =
   MenuItem label (Action (confirmAction message action' previousMenu))
-    where message = "Are you sure you want to " ++ label ++ "?"
+    where message = "Are you sure you want to select " ++ label ++ "?"
+
+-- Action sequencer
+infixl 4 >->
+(>->) :: Action -> Action -> Action
+a1 >-> a2 = Action $ do
+  _action a1
+  _action a2
 
 newGame :: Game
 newGame = Game "noname" 30 (vertex "Starting Room")
 
-menuInfo :: String
-menuInfo = "Menus are simple to use, all you need to do is press the corresponding numbers on your keyboard."
+-- helper function to set main text
+displayText :: String -> Action
+displayText text = Action $ textArea .= Just text
 
-multilineStr :: String
-multilineStr =
-  "This is a test of multiline strings\nThis should be on line 2\nand this on line 3"
+setMenu :: Menu -> Action
+setMenu menu = Action (currentMenu .= menu)
 
 helpMenu :: MenuM Menu
 helpMenu = do
   textArea .= Just "This is the help text, should be rendering if the Help Menu was selected"
   let menu = Menu "Help"
-             [ MenuItem "How to use menus"  (Action (textArea .= Just  menuInfo))
-             , MenuItem "How to quit"       (Action (textArea .= Just "Quitting is easy! Just go the main menu and select 'Quit'"))
-             , MenuItem "Multiline String Test" (Action (textArea .= Just multilineStr)) ]
+             [ MenuItem "How to use menus"      (displayText "Menus are simple to use, all you need to do is press the corresponding numbers on your keyboard.")
+             , MenuItem "How to quit"           (displayText "Quitting is easy! Just go the main menu and select 'Quit'")
+             , MenuItem "Multiline String Test" (displayText "This is a test of multiline strings\nThis should be on line 2\nand this on line 3") ]
   currentMenu .= menu
   return menu
 
@@ -141,11 +147,14 @@ statsMenu = do
   currentMenu .= menu
   return menu
 
+initNewGame :: Action
+initNewGame = Action (currentGame .= newGame)
+
 mainMenu :: Menu
 mainMenu = Menu "Main"
   [ menuItemWithBack "Help" helpMenu mainMenu
-  , menuItemWithConfirm "New Game" (Action $ currentGame .= newGame) mainMenu
-  , MenuItem "Increment age" testAction
+  , menuItemWithConfirm "New Game" (initNewGame >-> setMenu mainMenu >-> displayText "A new game has been created") mainMenu
+  , MenuItem "Increment age" (testAction >-> displayText "Age Incremented by 1")
   , menuItemWithBack "Stats" statsMenu mainMenu
   , menuItemWithConfirm "Quit"(Action $ quit .= True) mainMenu ]
   -- , MenuItem "Quit"          (Action $ confirmAction "Are you sure you want to quit?" (Action $ quit .= True) mainMenu) ]
@@ -156,9 +165,9 @@ runGameLoop = do
   unless quitFlag $ do
 
     -- Get state
-    displayText <- use textArea
-    menu <- use currentMenu
     flash <- use notice
+    textArea' <- use textArea
+    menu <- use currentMenu
     let items = menu ^. menuItems
 
     -- Render the view
@@ -166,7 +175,7 @@ runGameLoop = do
       clearScreen
       putStrLn $ renderMessage flash
       putStrLn "------------------------"
-      forM_ displayText $ \str -> do
+      forM_ textArea' $ \str -> do
         putStrLn str
         putStrLn "------------------------"
       putStrLn $ "Menu: " ++ menu ^. menuName
