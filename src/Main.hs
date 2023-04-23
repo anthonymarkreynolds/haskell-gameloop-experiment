@@ -189,7 +189,7 @@ runGameLoop = do
           Just selectedItem -> do
             textArea .= Nothing
             _action (selectedItem ^. itemAction)
-            notice .= Plain ("You selected " ++ show i ++ ". " ++ selectedItem ^. itemLabel)
+            notice .= Plain ("You selected option " ++ show i ++ ".) " ++ selectedItem ^. itemLabel)
           Nothing -> notice .= Info ("No menu item for " ++ show i)
       Nothing -> notice .= Alert "Invalid input"
 
